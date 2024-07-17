@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -144,7 +145,7 @@ class MainActivity : ComponentActivity() {
 
         override fun onScanFailed(errorCode: Int) {
             super.onScanFailed(errorCode)
-            println("Scan failed with error code: $errorCode")
+            Log.e("BluetoothGatt", "Scan failed with error code: $errorCode")
         }
     }
 
@@ -159,6 +160,7 @@ class MainActivity : ComponentActivity() {
                 runOnUiThread {
                     messages.add("Disconnected from ${gatt?.device?.name}")
                 }
+                bluetoothGatt = null
             }
         }
 
@@ -166,10 +168,21 @@ class MainActivity : ComponentActivity() {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 val service = gatt?.getService(HM10_UUID_SERVICE)
                 val characteristic = service?.getCharacteristic(HM10_UUID_CHAR)
-                gatt?.setCharacteristicNotification(characteristic, true)
-                val descriptor = characteristic?.getDescriptor(HM10_UUID_DESCRIPTOR)
-                descriptor?.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                gatt?.writeDescriptor(descriptor)
+                if (characteristic != null) {
+                    gatt.setCharacteristicNotification(characteristic, true)
+                    val descriptor = characteristic.getDescriptor(HM10_UUID_DESCRIPTOR)
+                    descriptor?.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                    gatt.writeDescriptor(descriptor)
+                    runOnUiThread {
+                        messages.add("Services discovered and notification enabled")
+                        // Send initial command to turn on LED
+                        sendData("1")
+                    }
+                } else {
+                    Log.e("BluetoothGatt", "Characteristic not found in service")
+                }
+            } else {
+                Log.e("BluetoothGatt", "onServicesDiscovered received: $status")
             }
         }
 
@@ -181,7 +194,34 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+
+        override fun onCharacteristicWrite(gatt: BluetoothGatt?, characteristic: BluetoothGattCharacteristic?, status: Int) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                Log.i("BluetoothGatt", "Characteristic written successfully")
+            } else {
+                Log.e("BluetoothGatt", "Characteristic write failed with status $status")
+            }
+        }
     }
+
+    @SuppressLint("MissingPermission")
+    private fun sendData(data: String) {
+        bluetoothGatt?.let { gatt ->
+            val service = gatt.getService(HM10_UUID_SERVICE)
+            val characteristic = service?.getCharacteristic(HM10_UUID_CHAR)
+            if (characteristic != null) {
+                characteristic.value = data.toByteArray(Charsets.UTF_8)
+                val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    gatt.writeCharacteristic(characteristic, data.toByteArray(Charsets.UTF_8), BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+                } else {
+                    gatt.writeCharacteristic(characteristic)
+                }
+            } else {
+                Log.e("BluetoothGatt", "Characteristic not found")
+            }
+        } ?: Log.e("BluetoothGatt", "BluetoothGatt is null")
+    }
+
 
     companion object {
         val HM10_UUID_SERVICE = UUID.fromString("0000ffe0-0000-1000-8000-00805f9b34fb")
@@ -192,9 +232,6 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun MainScreen(discoveredDevices: List<BluetoothDevice>, messages: List<String>, onScanClick: () -> Unit, onDeviceClick: (BluetoothDevice) -> Unit) {
-    var status by remember { mutableStateOf("Disconnected") }
-    var sensorData by remember { mutableStateOf("N/A") }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -202,12 +239,6 @@ fun MainScreen(discoveredDevices: List<BluetoothDevice>, messages: List<String>,
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            text = "Status: $status",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.primary
-        )
-        Spacer(modifier = Modifier.height(16.dp))
         Button(onClick = {
             onScanClick()
         }) {
