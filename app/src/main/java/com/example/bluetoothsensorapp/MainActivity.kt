@@ -24,10 +24,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.navigation.NavHostController
+import androidx.navigation.NavController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.example.bluetoothsensorapp.ui.theme.BluetoothSensorAppTheme
 import java.util.*
 
 class MainActivity : ComponentActivity() {
+
     private lateinit var bluetoothAdapter: BluetoothAdapter
     private lateinit var bluetoothLeScanner: BluetoothLeScanner
     private var scanning = false
@@ -48,35 +55,40 @@ class MainActivity : ComponentActivity() {
             permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true &&
             permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         ) {
-            // Permissions granted, proceed with scanning
             scanLeDevice()
-        } else {
-            // Permissions denied, show a message to the user
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.S)
+    @Composable
+    fun NavigationComponent(navController: NavHostController) {
+        NavHost(navController, startDestination = "login") {
+            composable("login") {
+                LoginScreen(navController = navController)
+            }
+            composable("main") {
+                MainScreen(
+                    discoveredDevices = discoveredDevices,
+                    messages = messages,
+                    status = if (isConnected) "Connected" else "Disconnected",  // Passing status
+                    onScanClick = { checkPermissionsAndScan() },
+                    onDeviceClick = { device -> connectToDevice(device) },
+                    onToggleChanged = { toggleState -> writeToggleToDevice(toggleState) }
+                )
+            }
+        }
+    }
     @RequiresApi(Build.VERSION_CODES.S)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             BluetoothSensorAppTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    MainScreen(
-                        discoveredDevices = discoveredDevices,
-                        messages = messages,
-                        status = if (isConnected) "Connected" else "Disconnected",  // Passing status
-                        onScanClick = { checkPermissionsAndScan() },
-                        onDeviceClick = { device -> connectToDevice(device) },
-                        onToggleChanged = { toggleState -> writeToggleToDevice(toggleState) }
-                    )
-                }
+                val navController = rememberNavController()
+                NavigationComponent(navController = navController)
             }
         }
 
-        val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as android.bluetooth.BluetoothManager
+        val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothAdapter = bluetoothManager.adapter
         bluetoothLeScanner = bluetoothAdapter.bluetoothLeScanner
     }
@@ -88,11 +100,9 @@ class MainActivity : ComponentActivity() {
                     ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED &&
                     ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
                     ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED -> {
-                // Permissions are already granted, proceed with scanning
                 scanLeDevice()
             }
             else -> {
-                // Request permissions
                 requestPermissionLauncher.launch(
                     arrayOf(
                         Manifest.permission.BLUETOOTH_SCAN,
@@ -113,7 +123,7 @@ class MainActivity : ComponentActivity() {
                 bluetoothLeScanner.stopScan(leScanCallback)
             }, SCAN_PERIOD)
             scanning = true
-            discoveredDevices.clear() // Clear the list before starting a new scan
+            discoveredDevices.clear()
             bluetoothLeScanner.startScan(leScanCallback)
         } else {
             scanning = false
@@ -135,22 +145,6 @@ class MainActivity : ComponentActivity() {
                 discoveredDevices.add(device)
             }
         }
-
-        @SuppressLint("MissingPermission")
-        override fun onBatchScanResults(results: List<ScanResult>) {
-            super.onBatchScanResults(results)
-            for (result in results) {
-                val device: BluetoothDevice = result.device
-                if (device.name != null && !discoveredDevices.contains(device)) {
-                    discoveredDevices.add(device)
-                }
-            }
-        }
-
-        override fun onScanFailed(errorCode: Int) {
-            super.onScanFailed(errorCode)
-            println("Scan failed with error code: $errorCode")
-        }
     }
 
     private val gattCallback = object : BluetoothGattCallback() {
@@ -159,35 +153,13 @@ class MainActivity : ComponentActivity() {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 gatt?.discoverServices()
                 runOnUiThread {
-                    isConnected = true // Update connection status
+                    isConnected = true
                     messages.add("Connected to ${gatt?.device?.name}")
                 }
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 runOnUiThread {
-                    isConnected = false // Update connection status
+                    isConnected = false
                     messages.add("Disconnected from ${gatt?.device?.name}")
-                }
-            }
-        }
-
-        @SuppressLint("MissingPermission")
-        override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                val service = gatt?.getService(HM10_UUID_SERVICE)
-                val characteristic = service?.getCharacteristic(HM10_UUID_CHAR)
-                gatt?.setCharacteristicNotification(characteristic, true)
-                val descriptor = characteristic?.getDescriptor(HM10_UUID_DESCRIPTOR)
-                descriptor?.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                gatt?.writeDescriptor(descriptor)
-            }
-        }
-
-        @SuppressLint("MissingPermission")
-        override fun onCharacteristicChanged(gatt: BluetoothGatt?, characteristic: BluetoothGattCharacteristic?) {
-            characteristic?.value?.let { value ->
-                val message = value.toString(Charsets.UTF_8)
-                runOnUiThread {
-                    messages.add("Message from ${gatt?.device?.name}: $message")
                 }
             }
         }
@@ -206,9 +178,73 @@ class MainActivity : ComponentActivity() {
     companion object {
         val HM10_UUID_SERVICE = UUID.fromString("0000ffe0-0000-1000-8000-00805f9b34fb")
         val HM10_UUID_CHAR = UUID.fromString("0000ffe1-0000-1000-8000-00805f9b34fb")
-        val HM10_UUID_DESCRIPTOR = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
 }
+
+
+
+@SuppressLint("MissingPermission")
+@Composable
+fun LoginScreen(navController: NavController) {
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+
+        Text(
+            text = "CarGuard",
+            style = MaterialTheme.typography.headlineLarge,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Spacer(modifier = Modifier.height(32.dp)) // Add space below the title
+        Text(
+            text = "Login",
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        OutlinedTextField(
+            value = username,
+            onValueChange = { username = it },
+            label = { Text("Username") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        OutlinedTextField(
+            value = password,
+            onValueChange = { password = it },
+            label = { Text("Password") },
+            modifier = Modifier.fillMaxWidth(),
+            visualTransformation = PasswordVisualTransformation()
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        if (error) {
+            Text(
+                text = "Invalid credentials, try again.",
+                color = MaterialTheme.colorScheme.error
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+        Button(onClick = {
+            // Hardcoded logic for allowing specific credentials
+            if (username == "user1" && password == "bums1") {
+                navController.navigate("main")
+            } else {
+                error = true
+            }
+        }) {
+            Text(text = "Login")
+        }
+    }
+}
+
 
 @SuppressLint("MissingPermission")
 @Composable
@@ -276,20 +312,5 @@ fun MainScreen(
             }
         }
     }
-}
 
-@Preview(showBackground = true)
-@Composable
-fun DefaultPreview() {
-    BluetoothSensorAppTheme {
-        // Pass a default status for the preview
-        MainScreen(
-            discoveredDevices = listOf(),
-            messages = listOf(),
-            status = "Disconnected",  // Default status for preview
-            onScanClick = {},
-            onDeviceClick = {},
-            onToggleChanged = {}
-        )
-    }
 }
