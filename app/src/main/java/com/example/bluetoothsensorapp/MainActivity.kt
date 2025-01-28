@@ -37,6 +37,8 @@ class MainActivity : ComponentActivity() {
     private val discoveredDevices = mutableStateListOf<BluetoothDevice>()
     private var bluetoothGatt: BluetoothGatt? = null
     private var messages = mutableStateListOf<String>()
+    private var isConnected by mutableStateOf(false) // Track connection status
+    private var isToggledOn by mutableStateOf(false) // Track toggle state
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -53,6 +55,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.S)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -64,8 +67,10 @@ class MainActivity : ComponentActivity() {
                     MainScreen(
                         discoveredDevices = discoveredDevices,
                         messages = messages,
+                        status = if (isConnected) "Connected" else "Disconnected",  // Passing status
                         onScanClick = { checkPermissionsAndScan() },
-                        onDeviceClick = { device -> connectToDevice(device) }
+                        onDeviceClick = { device -> connectToDevice(device) },
+                        onToggleChanged = { toggleState -> writeToggleToDevice(toggleState) }
                     )
                 }
             }
@@ -149,19 +154,23 @@ class MainActivity : ComponentActivity() {
     }
 
     private val gattCallback = object : BluetoothGattCallback() {
+        @SuppressLint("MissingPermission")
         override fun onConnectionStateChange(gatt: BluetoothGatt?, status: Int, newState: Int) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 gatt?.discoverServices()
                 runOnUiThread {
+                    isConnected = true // Update connection status
                     messages.add("Connected to ${gatt?.device?.name}")
                 }
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 runOnUiThread {
+                    isConnected = false // Update connection status
                     messages.add("Disconnected from ${gatt?.device?.name}")
                 }
             }
         }
 
+        @SuppressLint("MissingPermission")
         override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 val service = gatt?.getService(HM10_UUID_SERVICE)
@@ -173,6 +182,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        @SuppressLint("MissingPermission")
         override fun onCharacteristicChanged(gatt: BluetoothGatt?, characteristic: BluetoothGattCharacteristic?) {
             characteristic?.value?.let { value ->
                 val message = value.toString(Charsets.UTF_8)
@@ -183,6 +193,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @SuppressLint("MissingPermission")
+    private fun writeToggleToDevice(toggleState: Boolean) {
+        val value = if (toggleState) "U" else "L"
+        val service = bluetoothGatt?.getService(HM10_UUID_SERVICE)
+        val characteristic = service?.getCharacteristic(HM10_UUID_CHAR)
+
+        characteristic?.value = value.toByteArray()
+        bluetoothGatt?.writeCharacteristic(characteristic)
+    }
+
     companion object {
         val HM10_UUID_SERVICE = UUID.fromString("0000ffe0-0000-1000-8000-00805f9b34fb")
         val HM10_UUID_CHAR = UUID.fromString("0000ffe1-0000-1000-8000-00805f9b34fb")
@@ -190,10 +210,17 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@SuppressLint("MissingPermission")
 @Composable
-fun MainScreen(discoveredDevices: List<BluetoothDevice>, messages: List<String>, onScanClick: () -> Unit, onDeviceClick: (BluetoothDevice) -> Unit) {
-    var status by remember { mutableStateOf("Disconnected") }
-    var sensorData by remember { mutableStateOf("N/A") }
+fun MainScreen(
+    discoveredDevices: List<BluetoothDevice>,
+    messages: List<String>,
+    status: String,
+    onScanClick: () -> Unit,
+    onDeviceClick: (BluetoothDevice) -> Unit,
+    onToggleChanged: (Boolean) -> Unit
+) {
+    var isToggledOn by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -208,9 +235,7 @@ fun MainScreen(discoveredDevices: List<BluetoothDevice>, messages: List<String>,
             color = MaterialTheme.colorScheme.primary
         )
         Spacer(modifier = Modifier.height(16.dp))
-        Button(onClick = {
-            onScanClick()
-        }) {
+        Button(onClick = { onScanClick() }) {
             Text(text = "Scan for Devices")
         }
         Spacer(modifier = Modifier.height(16.dp))
@@ -228,6 +253,23 @@ fun MainScreen(discoveredDevices: List<BluetoothDevice>, messages: List<String>,
             }
         }
         Spacer(modifier = Modifier.height(16.dp))
+
+        if (status == "Connected") {
+            Switch(
+                checked = isToggledOn,
+                onCheckedChange = { toggled ->
+                    isToggledOn = toggled
+                    onToggleChanged(toggled)
+                },
+                modifier = Modifier.padding(8.dp)
+            )
+            Text(
+                text = "Send: ${if (isToggledOn) "U" else "L"}",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
         LazyColumn {
             items(messages) { message ->
                 Text(text = message)
@@ -240,6 +282,14 @@ fun MainScreen(discoveredDevices: List<BluetoothDevice>, messages: List<String>,
 @Composable
 fun DefaultPreview() {
     BluetoothSensorAppTheme {
-        MainScreen(discoveredDevices = listOf(), messages = listOf(), onScanClick = {}, onDeviceClick = {})
+        // Pass a default status for the preview
+        MainScreen(
+            discoveredDevices = listOf(),
+            messages = listOf(),
+            status = "Disconnected",  // Default status for preview
+            onScanClick = {},
+            onDeviceClick = {},
+            onToggleChanged = {}
+        )
     }
 }
