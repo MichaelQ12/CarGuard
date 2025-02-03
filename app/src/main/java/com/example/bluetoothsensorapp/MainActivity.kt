@@ -45,7 +45,7 @@ class MainActivity : ComponentActivity() {
     private var bluetoothGatt: BluetoothGatt? = null
     private var messages = mutableStateListOf<String>()
     private var isConnected by mutableStateOf(false) // Track connection status
-    private var isToggledOn by mutableStateOf(false) // Track toggle state
+    private var isToggledOn by mutableStateOf(false)  // Track toggle state
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -70,10 +70,11 @@ class MainActivity : ComponentActivity() {
                 MainScreen(
                     discoveredDevices = discoveredDevices,
                     messages = messages,
-                    status = if (isConnected) "Connected" else "Disconnected",  // Passing status
+                    status = if (isConnected) "Connected" else "Disconnected",
                     onScanClick = { checkPermissionsAndScan() },
                     onDeviceClick = { device -> connectToDevice(device) },
-                    onToggleChanged = { toggleState -> writeToggleToDevice(toggleState) }
+                    onToggleChanged = { toggleState -> writeToggleToDevice(toggleState) },
+                    onDisconnectClick = { disconnectDevice() }
                 )
             }
         }
@@ -135,6 +136,20 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("MissingPermission")
     private fun connectToDevice(device: BluetoothDevice) {
         bluetoothGatt = device.connectGatt(this, false, gattCallback)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun disconnectDevice() {
+        bluetoothGatt?.disconnect()
+        bluetoothGatt?.close()
+        bluetoothGatt = null
+        runOnUiThread {
+            isConnected = false
+            isToggledOn = false
+            messages.clear()
+            // Optionally, you can also clear discoveredDevices if desired:
+             discoveredDevices.clear()
+        }
     }
 
     private val leScanCallback: ScanCallback = object : ScanCallback() {
@@ -299,7 +314,8 @@ fun MainScreen(
     status: String,
     onScanClick: () -> Unit,
     onDeviceClick: (BluetoothDevice) -> Unit,
-    onToggleChanged: (Boolean) -> Unit
+    onToggleChanged: (Boolean) -> Unit,
+    onDisconnectClick: () -> Unit
 ) {
     var isToggledOn by remember { mutableStateOf(false) }
 
@@ -307,7 +323,7 @@ fun MainScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
-        verticalArrangement = Arrangement.Center,
+        verticalArrangement = Arrangement.Top,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
@@ -333,8 +349,13 @@ fun MainScreen(
                 )
             }
         }
-        Spacer(modifier = Modifier.height(16.dp))
+        // When connected, show the disconnect button, toggle, and messages.
         if (status == "Connected") {
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(onClick = { onDisconnectClick() }) {
+                Text(text = "Disconnect")
+            }
+            Spacer(modifier = Modifier.height(16.dp))
             Switch(
                 checked = isToggledOn,
                 onCheckedChange = { toggled ->
@@ -347,11 +368,11 @@ fun MainScreen(
                 text = if (isToggledOn) "OFF" else "ON",
                 style = MaterialTheme.typography.bodyMedium
             )
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-        LazyColumn {
-            items(messages) { message ->
-                Text(text = message)
+            Spacer(modifier = Modifier.height(16.dp))
+            LazyColumn {
+                items(messages) { message ->
+                    Text(text = message)
+                }
             }
         }
     }
@@ -367,7 +388,8 @@ fun DefaultPreview() {
             status = "Disconnected",  // Default status for preview
             onScanClick = {},
             onDeviceClick = {},
-            onToggleChanged = {}
+            onToggleChanged = {},
+            onDisconnectClick = {}
         )
     }
 }
