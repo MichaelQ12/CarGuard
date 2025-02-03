@@ -145,6 +145,22 @@ class MainActivity : ComponentActivity() {
                 discoveredDevices.add(device)
             }
         }
+
+        @SuppressLint("MissingPermission")
+        override fun onBatchScanResults(results: List<ScanResult>) {
+            super.onBatchScanResults(results)
+            for (result in results) {
+                val device: BluetoothDevice = result.device
+                if (device.name != null && !discoveredDevices.contains(device)) {
+                    discoveredDevices.add(device)
+                }
+            }
+        }
+
+        override fun onScanFailed(errorCode: Int) {
+            super.onScanFailed(errorCode)
+            println("Scan failed with error code: $errorCode")
+        }
     }
 
     private val gattCallback = object : BluetoothGattCallback() {
@@ -163,6 +179,27 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+
+        @SuppressLint("MissingPermission")
+        override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                val service = gatt?.getService(HM10_UUID_SERVICE)
+                val characteristic = service?.getCharacteristic(HM10_UUID_CHAR)
+                gatt?.setCharacteristicNotification(characteristic, true)
+                val descriptor = characteristic?.getDescriptor(HM10_UUID_DESCRIPTOR)
+                descriptor?.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                gatt?.writeDescriptor(descriptor)
+            }
+        }
+        @SuppressLint("MissingPermission")
+        override fun onCharacteristicChanged(gatt: BluetoothGatt?, characteristic: BluetoothGattCharacteristic?) {
+            characteristic?.value?.let { value ->
+                val message = value.toString(Charsets.UTF_8)
+                runOnUiThread {
+                    messages.add("Message from ${gatt?.device?.name}: $message")
+                }
+            }
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -178,6 +215,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         val HM10_UUID_SERVICE = UUID.fromString("0000ffe0-0000-1000-8000-00805f9b34fb")
         val HM10_UUID_CHAR = UUID.fromString("0000ffe1-0000-1000-8000-00805f9b34fb")
+        val HM10_UUID_DESCRIPTOR = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
 }
 
@@ -313,4 +351,21 @@ fun MainScreen(
         }
     }
 
+
+}
+
+@Preview(showBackground = true)
+@Composable
+fun DefaultPreview() {
+    BluetoothSensorAppTheme {
+        // Pass a default status for the preview
+        MainScreen(
+            discoveredDevices = listOf(),
+            messages = listOf(),
+            status = "Disconnected",  // Default status for preview
+            onScanClick = {},
+            onDeviceClick = {},
+            onToggleChanged = {}
+        )
+    }
 }
