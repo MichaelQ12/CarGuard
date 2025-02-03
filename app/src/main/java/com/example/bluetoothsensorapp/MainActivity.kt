@@ -300,7 +300,7 @@ fun MainScreen(
                 modifier = Modifier.padding(8.dp)
             )
             Text(
-                text = "Send: ${if (isToggledOn) "U" else "L"}",
+                text = "${if (isToggledOn) "OFF" else "ON"}",
                 style = MaterialTheme.typography.bodyMedium
             )
         }
