@@ -21,15 +21,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import androidx.navigation.NavHostController
 import androidx.navigation.NavController
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.example.bluetoothsensorapp.ui.theme.BluetoothSensorAppTheme
 import java.util.*
 
@@ -78,6 +78,7 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
     @RequiresApi(Build.VERSION_CODES.S)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -141,7 +142,11 @@ class MainActivity : ComponentActivity() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             super.onScanResult(callbackType, result)
             val device: BluetoothDevice = result.device
-            if (device.name != null && !discoveredDevices.contains(device)) {
+            // Only add devices that have a non-null name containing "HM-10"
+            if (device.name != null &&
+                device.name.contains("HM-10", ignoreCase = true) &&
+                !discoveredDevices.contains(device)
+            ) {
                 discoveredDevices.add(device)
             }
         }
@@ -151,7 +156,11 @@ class MainActivity : ComponentActivity() {
             super.onBatchScanResults(results)
             for (result in results) {
                 val device: BluetoothDevice = result.device
-                if (device.name != null && !discoveredDevices.contains(device)) {
+                // Only add devices that have a non-null name containing "HM-10"
+                if (device.name != null &&
+                    device.name.contains("HM-10", ignoreCase = true) &&
+                    !discoveredDevices.contains(device)
+                ) {
                     discoveredDevices.add(device)
                 }
             }
@@ -191,6 +200,7 @@ class MainActivity : ComponentActivity() {
                 gatt?.writeDescriptor(descriptor)
             }
         }
+
         @SuppressLint("MissingPermission")
         override fun onCharacteristicChanged(gatt: BluetoothGatt?, characteristic: BluetoothGattCharacteristic?) {
             characteristic?.value?.let { value ->
@@ -219,8 +229,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-
-
 @SuppressLint("MissingPermission")
 @Composable
 fun LoginScreen(navController: NavController) {
@@ -241,7 +249,7 @@ fun LoginScreen(navController: NavController) {
             style = MaterialTheme.typography.headlineLarge,
             color = MaterialTheme.colorScheme.primary
         )
-        Spacer(modifier = Modifier.height(32.dp)) // Add space below the title
+        Spacer(modifier = Modifier.height(32.dp))
         Text(
             text = "Login",
             style = MaterialTheme.typography.headlineMedium,
@@ -271,7 +279,7 @@ fun LoginScreen(navController: NavController) {
             Spacer(modifier = Modifier.height(8.dp))
         }
         Button(onClick = {
-            // Hardcoded logic for allowing specific credentials
+            // Hardcoded credentials check
             if (username == "user1" && password == "bums1") {
                 navController.navigate("main")
             } else {
@@ -282,7 +290,6 @@ fun LoginScreen(navController: NavController) {
         }
     }
 }
-
 
 @SuppressLint("MissingPermission")
 @Composable
@@ -327,7 +334,6 @@ fun MainScreen(
             }
         }
         Spacer(modifier = Modifier.height(16.dp))
-
         if (status == "Connected") {
             Switch(
                 checked = isToggledOn,
@@ -338,11 +344,10 @@ fun MainScreen(
                 modifier = Modifier.padding(8.dp)
             )
             Text(
-                text = "${if (isToggledOn) "OFF" else "ON"}",
+                text = if (isToggledOn) "OFF" else "ON",
                 style = MaterialTheme.typography.bodyMedium
             )
         }
-
         Spacer(modifier = Modifier.height(16.dp))
         LazyColumn {
             items(messages) { message ->
@@ -350,15 +355,12 @@ fun MainScreen(
             }
         }
     }
-
-
 }
 
 @Preview(showBackground = true)
 @Composable
 fun DefaultPreview() {
     BluetoothSensorAppTheme {
-        // Pass a default status for the preview
         MainScreen(
             discoveredDevices = listOf(),
             messages = listOf(),
